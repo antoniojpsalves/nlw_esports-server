@@ -1,17 +1,110 @@
 import express from 'express';
+import cors from 'cors';
 
+import { PrismaClient } from '@prisma/client';
+import { convertHourStringToMinutes } from './utils/convert-hour-string-to-minutes';
+import { convertMinutesToHourString } from './utils/convert-minutes-to-hours-string';
 
 const app = express();
 
-// Método GET - localhost:3333/ads
-app.get('/ads', (request, response) => {
-    // return response.send("Acessou ADS!!!");
-    return response.json([
-        {   id: 1, nome: "Anúncio 1" },
-        {   id: 2, nome: "Anúncio 2" },
-        {   id: 3, nome: "Anúncio 3" },
-        {   id: 4, nome: "Anúncio 4" },
-    ]);
+
+//Perimitindo utilizar json
+app.use(express.json());
+
+//Lib que permite blinda o backend para receber request de frontends específicos
+app.use(cors());
+
+const prisma = new PrismaClient();
+
+//Utilizar os métodos HTTP / API RESTful
+
+
+//Método GET - retornar os jogos
+app.get('/games', async (req, res) => {
+
+    const games = await prisma.game.findMany({
+        include: {
+            _count: {
+                select: {
+                    ads: true
+                }
+            }
+        }
+    });
+    return res.json(games);
 });
 
-app.listen(3333)
+//Adicionar anúncio
+app.post('/games/:id/ads', async (req, res) => {
+
+    const gameId = req.params.id;
+
+    const body = req.body;
+
+    const ad = await prisma.ad.create({
+        data: {
+            gameId,
+            name: body.name,
+            yearsPlaying: body.yearsPlaying,
+            discord: body.discord,
+            weekDays: body.weekDays.join(','),
+            hourStart: convertHourStringToMinutes(body.hourStart),
+            hourEnd: convertHourStringToMinutes(body.hourEnd),
+            useVoiceChannel: body.useVoiceChannel
+        }
+    });
+
+    return res.status(201).json(ad);
+});
+
+// Método GET - para retornar os anúncios de um jogo
+app.get('/games/:id/ads', async (req, res) => {
+    const gameId = req.params.id;
+
+    const ads = await prisma.ad.findMany({
+        select: {
+            id: true,
+            name: true,
+            weekDays: true,
+            useVoiceChannel: true,
+            yearsPlaying: true,
+            hourStart: true,
+            hourEnd: true
+        },
+        where: {
+            gameId,
+        },
+        orderBy: {
+            createdAt: 'desc'
+        }
+    });
+
+    return res.json(ads.map(ad => {
+        return {
+            ...ad,
+            weekDays: ad.weekDays.split(','),
+            hourStart: convertMinutesToHourString(ad.hourStart),
+            hourEnd: convertMinutesToHourString(ad.hourEnd)
+        }
+    }));
+});
+
+//Método GET -  para retornar o discord do anúncio específico
+app.get('/ads/:id/discord', async (req, res) => {
+    const adId = req.params.id;
+
+    const ad = await prisma.ad.findUniqueOrThrow({
+        select: {
+            discord: true
+        },
+        where: {
+            id: adId,
+        }
+    });
+
+    return res.json({
+        discord: ad.discord,
+    });
+});
+
+app.listen(3333);
